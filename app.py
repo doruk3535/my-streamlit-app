@@ -1,34 +1,35 @@
-import streamlit as st  # type: ignore
+import streamlit as st
 import zipfile
 from pathlib import Path
 import re
 import os
 import numpy as np
-from openai import OpenAI
 
-# ----------------------------
-# Global configuration
-# ----------------------------
+# ============================================================
+# 0. Page config
+# ============================================================
 
-# Read API key from environment; if missing, client will be None
-api_key = os.getenv("OPENAI_API_KEY")
-client = OpenAI(api_key=api_key) if api_key else None
+st.set_page_config(
+    page_title="CodeDocMate Lite",
+    page_icon="🧠",
+    layout="wide",
+)
 
-EMBEDDING_MODEL = "text-embedding-3-small"
-LLM_MODEL = "gpt-4.1-mini"
+# ============================================================
+# 1. Basic settings
+# ============================================================
 
-# Currently we only support Python files
-SUPPORTED_EXT = [".py"]
+SUPPORTED_EXT = [".py"]  # şimdilik sadece Python dosyaları
 
 
-# ----------------------------
-# Helper functions: file handling and chunking
-# ----------------------------
+# ============================================================
+# 2. Helper functions: files & chunking
+# ============================================================
 
 def save_and_extract_zip(uploaded_file, extract_root: Path) -> Path:
     """
-    Save the uploaded zip file to disk and extract it.
-    Returns the path to the project root directory.
+    ZIP dosyasını diske kaydedip açar.
+    Proje kök klasörünün Path'ini döndürür.
     """
     extract_root.mkdir(parents=True, exist_ok=True)
 
@@ -44,22 +45,22 @@ def save_and_extract_zip(uploaded_file, extract_root: Path) -> Path:
 
 def find_code_files(root: Path):
     """
-    Recursively find all supported code files under the given root.
+    Kök klasör altında desteklenen tüm kod dosyalarını bulur.
     """
     return [p for p in root.rglob("*") if p.suffix in SUPPORTED_EXT]
 
 
 def read_file(path: Path) -> str:
     """
-    Read a text file safely using UTF-8 encoding.
+    UTF-8 ile güvenli okuma.
     """
     return path.read_text(encoding="utf-8", errors="ignore")
 
 
 def simple_chunk(code: str, max_lines: int = 40):
     """
-    Split code into simple line-based chunks.
-    This is a placeholder for more advanced, structure-aware chunking.
+    Kodu satır sayısına göre basit parçalara böler.
+    (Gelişmiş chunking için placeholder.)
     """
     lines = code.splitlines()
     for i in range(0, len(lines), max_lines):
@@ -69,8 +70,8 @@ def simple_chunk(code: str, max_lines: int = 40):
 
 def extract_function_name_from_query(query: str):
     """
-    Try to extract a function name from a natural language question.
-    Example: "What does calculate_loss() do?" -> "calculate_loss"
+    Soru içinden fonksiyon ismini yakalamaya çalışır.
+    Örnek: "What does calculate_loss() do?" -> "calculate_loss"
     """
     match = re.search(r"([a-zA-Z_]\w*)\s*\(", query)
     if match:
@@ -78,239 +79,252 @@ def extract_function_name_from_query(query: str):
     return None
 
 
-# ----------------------------
-# Helper functions: embeddings and retrieval
-# ----------------------------
+# ============================================================
+# 3. Simple local retrieval (no embeddings, no LLM)
+# ============================================================
 
-def embed_text(text: str) -> list[float]:
+def score_chunk(chunk_code: str, query: str, func_name: str | None = None) -> int:
     """
-    Create an embedding vector for the given text using the configured model.
-    Raises RuntimeError if no OpenAI client is available.
+    Çok basit text-based skorlayıcı:
+    - Soru içindeki kelimeleri sayar
+    - Fonksiyon adı geçiyorsa ekstra puan verir
     """
-    if client is None:
-        raise RuntimeError("OPENAI_API_KEY is not set; cannot create embeddings.")
+    text = chunk_code.lower()
+    q = query.lower()
+    tokens = [t for t in re.findall(r"\w+", q) if len(t) >= 3]
 
-    response = client.embeddings.create(
-        model=EMBEDDING_MODEL,
-        input=text
-    )
-    return response.data[0].embedding
+    score = 0
+    for tok in tokens:
+        score += text.count(tok)
 
+    if func_name and func_name.lower() in text:
+        score += 5
 
-def cosine_sim(a, b) -> float:
-    """
-    Compute cosine similarity between two vectors.
-    """
-    a = np.array(a, dtype=float)
-    b = np.array(b, dtype=float)
-    denom = (np.linalg.norm(a) * np.linalg.norm(b)) + 1e-8
-    return float(np.dot(a, b) / denom)
+    return score
 
 
-def retrieve_top_k(chunks, query: str, k: int = 3):
+def retrieve_top_k(chunks, query: str, func_name: str | None = None, k: int = 3):
     """
-    Embedding-based retrieval:
-    1. Create an embedding for the query.
-    2. Compute cosine similarity with each chunk embedding.
-    3. Return the top-k most similar chunks.
+    Basit local retrieval:
+    - Her chunk için text skor hesaplar
+    - En yüksek skorlu k chunk'ı döndürür
     """
-    query_emb = embed_text(query)
     scored = []
-
     for ch in chunks:
-        score = cosine_sim(query_emb, ch["embedding"])
-        scored.append((score, ch))
+        s = score_chunk(ch["code"], query, func_name=func_name)
+        if s > 0:
+            scored.append((s, ch))
+
+    # Hiç skor çıkmazsa, fallback olarak ilk k chunk
+    if not scored:
+        return chunks[:k]
 
     scored.sort(key=lambda x: x[0], reverse=True)
     top_chunks = [c for _, c in scored[:k]]
     return top_chunks
 
 
-# ----------------------------
-# Helper functions: explanations
-# ----------------------------
+# ============================================================
+# 4. Explanation (stub / rule-based)
+# ============================================================
 
-def fake_explanation(code_snippet: str, query: str) -> str:
+def local_explanation(chunks, query: str) -> str:
     """
-    Placeholder explanation for comparison and fallback.
+    LLM kullanmadan, geri getirilen kod parçalarına göre
+    açıklama üreten stub / kural tabanlı açıklama.
     """
-    return (
-        "### Prototype explanation (stub)\n\n"
-        "This is a placeholder explanation for your question:\n\n"
-        f"> {query}\n\n"
-        "The system searched for a code region related to your query "
-        "and found the following snippet:\n\n"
-        "```python\n"
-        + code_snippet
-        + "\n```\n\n"
-        "In the full RAG version, this part calls an LLM with retrieved "
-        "code context to generate a detailed and grounded explanation."
-    )
-
-
-def llm_explanation(chunks, query: str) -> str:
-    """
-    Generate a real explanation using an LLM, given retrieved chunks and the query.
-    """
-    if client is None:
-        raise RuntimeError("OPENAI_API_KEY is not set; cannot call LLM.")
-
-    context_parts = []
+    bullet_snippets = []
     for ch in chunks:
-        context_parts.append(f"# File: {ch['path']}\n{ch['code']}")
+        code_preview = "\n".join(ch["code"].splitlines()[:10])
+        bullet_snippets.append(
+            f"- **File:** `{ch['path']}`\n\n"
+            f"  ```python\n{code_preview}\n  ```\n"
+        )
 
-    context = "\n\n".join(context_parts)
+    joined = "\n".join(bullet_snippets)
 
-    prompt = (
-        "You are a software engineering assistant. "
-        "Explain what the following code does in clear, concise natural language. "
-        "Focus on the intent of the functions, important parameters, and any "
-        "non-trivial logic.\n\n"
-        f"Developer question:\n{query}\n\n"
-        "Relevant code snippets:\n"
-        f"{context}\n\n"
-        "Now provide a helpful explanation for the developer."
-    )
+    explanation = f"""
+### Prototype explanation (no LLM)
 
-    response = client.responses.create(
-        model=LLM_MODEL,
-        input=prompt,
-    )
+You asked:
 
-    # Adjust this indexing if SDK output schema is different in your environment
-    text = response.output[0].content[0].text
-    return text
+> {query}
+
+CodeDocMate Lite searched your project and found these relevant code regions:
+
+{joined}
+
+This **local-only prototype** does not use any LLM or external API.
+It relies on simple keyword and function-name matching across your codebase.
+In a full RAG + LLM version, this step would call an LLM with these snippets
+to generate a more natural, high-level explanation.
+"""
+    return explanation
 
 
-# ----------------------------
-# Streamlit UI
-# ----------------------------
+# ============================================================
+# 5. UI Layout
+# ============================================================
 
-st.title("CodeDocMate – Early RAG Prototype")
+# --- Sidebar ---
+st.sidebar.title("🧠 CodeDocMate Lite")
+st.sidebar.caption("Local-only, no-LLM prototype")
 
-st.markdown(
+st.sidebar.markdown(
     """
-This prototype demonstrates the first working step of **CodeDocMate**.
+**Status**
 
-- Upload a zipped project (currently only Python files are used).
-- The system scans and chunks the source files.
-- Each chunk is embedded into a vector space using an OpenAI embedding model.
-- Given a natural language question, the system retrieves relevant chunks
-  and either shows a stub explanation or calls an LLM (RAG mode).
-
-In the final version, this will be extended with more advanced chunking,
-better retrieval, and richer documentation generation.
+- 🌐 No OpenAI / LLM
+- 🗂 In-memory chunk store
+- 🔍 Simple keyword-based retrieval
 """
 )
 
-if client is None:
-    st.warning(
-        "OPENAI_API_KEY is not set. Embeddings and LLM calls will fail. "
-        "You can still run the stub mode, but RAG + LLM will require a valid API key."
-    )
+st.sidebar.markdown("---")
+st.sidebar.markdown(
+    "Made for experimenting with RAG-like flows **without** any API key."
+)
 
-# ----------------------------
-# Section 1: Project upload and indexing
-# ----------------------------
+# --- Main title ---
+st.title("CodeDocMate Lite – Local-Only RAG Prototype")
 
-st.header("1. Upload and index project")
+st.markdown(
+    """
+This version of **CodeDocMate** works **without** any LLM or OpenAI API.
 
-uploaded_zip = st.file_uploader("Upload your project (.zip)", type=["zip"])
+- Upload a zipped Python project.
+- The system scans and chunks your `.py` files.
+- When you ask a question, it uses simple keyword search
+  and function-name matching to find relevant code chunks.
+- It then builds a **prototype explanation** around those chunks.
 
-# Derive a default project ID from the zip file name (without .zip extension)
-default_project_id = "demo-project"
-if uploaded_zip is not None:
-    default_project_id = uploaded_zip.name
-    if default_project_id.lower().endswith(".zip"):
-        default_project_id = default_project_id[:-4]
+Use this to **demo the pipeline** without any external costs.
+"""
+)
 
-project_id = st.text_input("Project ID", value=default_project_id)
+# Tabs for a cleaner, more modern layout
+tab_upload, tab_ask, tab_overview = st.tabs(
+    ["1️⃣ Upload & Index", "2️⃣ Ask About Code", "ℹ️ System Overview"]
+)
 
-if uploaded_zip is not None and project_id:
-    st.info("Zip file received. Click the button below to process and index the project.")
+# ============================================================
+# 6. Tab 1 – Upload & index
+# ============================================================
 
-    if st.button("Process & Index Project"):
-        project_root = Path("projects") / project_id
-        root = save_and_extract_zip(uploaded_zip, project_root)
+with tab_upload:
+    st.header("1. Upload and index project")
 
-        code_files = find_code_files(root)
-        st.write(f"Found *{len(code_files)}* Python files:")
+    uploaded_zip = st.file_uploader("Upload your project (.zip)", type=["zip"])
 
-        for p in code_files:
-            st.write(f"- {p.relative_to(root)}")
+    default_project_id = "demo-project"
+    if uploaded_zip is not None:
+        default_project_id = uploaded_zip.name
+        if default_project_id.lower().endswith(".zip"):
+            default_project_id = default_project_id[:-4]
 
-        all_chunks = []
-        try:
+    project_id = st.text_input("Project ID", value=default_project_id)
+
+    if uploaded_zip is not None and project_id:
+        st.info("Zip file received. Click the button below to process and index the project.")
+
+        if st.button("Process & Index Project", type="primary"):
+            project_root = Path("projects") / project_id
+            root = save_and_extract_zip(uploaded_zip, project_root)
+
+            code_files = find_code_files(root)
+            st.write(f"Found **{len(code_files)}** Python files:")
+
+            for p in code_files:
+                st.write(f"- `{p.relative_to(root)}`")
+
+            all_chunks = []
             for p in code_files:
                 code = read_file(p)
                 for ch in simple_chunk(code, max_lines=40):
-                    emb = embed_text(ch)
                     all_chunks.append(
                         {
                             "path": str(p.relative_to(root)),
                             "code": ch,
-                            "embedding": emb,
                         }
                     )
 
-            st.write(f"Created *{len(all_chunks)}* code chunks with embeddings.")
+            st.write(f"Created **{len(all_chunks)}** code chunks.")
             st.session_state["chunks"] = all_chunks
-            st.success("Project is indexed in memory (simple in-memory vector store).")
-        except Exception as e:
-            st.error(
-                "Failed to create embeddings. Check your OPENAI_API_KEY and billing/quota.\n\n"
-                f"Details: {e}"
+            st.success("Project is indexed in memory (local-only).")
+
+
+# ============================================================
+# 7. Tab 2 – Ask question
+# ============================================================
+
+with tab_ask:
+    st.header("2. Ask a question about the code")
+
+    if "chunks" not in st.session_state or not st.session_state["chunks"]:
+        st.warning("No project is indexed yet. Please go to **Upload & Index** first.")
+    else:
+        col1, col2 = st.columns([2, 1])
+
+        with col1:
+            default_q = "What does the function calculate_loss() do?"
+            query = st.text_area("Your question:", value=default_q, height=100)
+
+        with col2:
+            st.markdown("**Explanation mode**")
+            st.radio(
+                "",
+                ["Stub (no LLM, local-only)"],
+                index=0,
+                key="mode_radio",
+            )
+            st.caption(
+                "In this Lite version, only a local stub explanation is available.\n"
+                "RAG + LLM mode is disabled because there is no API usage."
             )
 
-# ----------------------------
-# Section 2: Question and explanation
-# ----------------------------
+        if st.button("Retrieve & Explain", type="primary"):
+            chunks = st.session_state["chunks"]
 
-st.header("2. Ask a question about the code")
-
-default_q = "What does the function calculate_loss() do?"
-mode = st.radio(
-    "Explanation mode",
-    ["Stub (no LLM)", "RAG + LLM"],
-    index=0,
-)
-query = st.text_area("Your question:", value=default_q, height=80)
-
-if st.button("Retrieve & Explain"):
-    if "chunks" not in st.session_state or not st.session_state["chunks"]:
-        st.error("No project is indexed yet. Please upload and process a project first.")
-    else:
-        chunks = st.session_state["chunks"]
-
-        func_name = extract_function_name_from_query(query)
-        if func_name:
-            st.write(f"Detected function name in query: {func_name}")
-            query_for_embedding = query + f" (function name: {func_name})"
-        else:
-            st.write("No function name detected in the query.")
-            query_for_embedding = query
-
-        try:
-            if mode == "Stub (no LLM)":
-                # Use only the first chunk as a simple baseline
-                best = chunks[0]
-                explanation_md = fake_explanation(best["code"], query)
+            func_name = extract_function_name_from_query(query)
+            if func_name:
+                st.info(f"Detected function name in query: `{func_name}`")
             else:
-                top_chunks = retrieve_top_k(chunks, query_for_embedding, k=3)
+                st.info("No explicit function name detected in the question.")
 
-                if not top_chunks:
-                    st.error("No code snippets are available.")
-                    st.stop()
+            top_chunks = retrieve_top_k(chunks, query, func_name=func_name, k=3)
 
-                explanation_text = llm_explanation(top_chunks, query)
-                explanation_md = "### LLM explanation\n\n" + explanation_text
-
+            explanation_md = local_explanation(top_chunks, query)
             st.markdown(explanation_md)
 
-        except Exception as e:
-            st.error(
-                "Failed to run RAG + LLM explanation. "
-                "This is usually caused by a missing/invalid API key or insufficient quota.\n\n"
-                f"Details: {e}"
-            )
+            with st.expander("Show retrieved chunks in full"):
+                for i, ch in enumerate(top_chunks, start=1):
+                    st.markdown(f"#### Chunk {i} – `{ch['path']}`")
+                    st.code(ch["code"], language="python")
 
+
+# ============================================================
+# 8. Tab 3 – System overview
+# ============================================================
+
+with tab_overview:
+    st.header("System Overview (Lite Version)")
+
+    st.markdown(
+        """
+**CodeDocMate Lite** illustrates the overall RAG-style workflow **without** any LLM:
+
+1. The user uploads a zipped project.
+2. The system extracts the archive and scans for supported source files (currently `.py`).
+3. Each file is split into smaller, line-based chunks for more fine-grained retrieval.
+4. When the user asks a natural-language question, the system:
+   - Tries to detect a function name (e.g., `calculate_loss`)
+   - Performs simple keyword matching across all chunks
+5. The most relevant chunks are returned and shown to the user together with
+   a prototype, rule-based explanation.
+
+In a **full RAG + LLM** version, these chunks would be passed to an LLM
+(e.g., GPT-4.x) to generate high-level, human-readable documentation.
+Here, we keep everything **local and API-free** to make the pipeline
+easy to demo and safe to run anywhere.
+"""
+    )
