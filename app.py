@@ -17,7 +17,8 @@ client = OpenAI(api_key=api_key) if api_key else None
 EMBEDDING_MODEL = "text-embedding-3-small"
 LLM_MODEL = "gpt-4.1-mini"
 
-SUPPORTED_EXT = [".py"]  # Currently we only support Python files
+# Currently we only support Python files
+SUPPORTED_EXT = [".py"]
 
 
 # ----------------------------
@@ -139,9 +140,9 @@ def fake_explanation(code_snippet: str, query: str) -> str:
         f"> {query}\n\n"
         "The system searched for a code region related to your query "
         "and found the following snippet:\n\n"
-        "python\n"
+        "```python\n"
         + code_snippet
-        + "\n\n\n"
+        + "\n```\n\n"
         "In the full RAG version, this part calls an LLM with retrieved "
         "code context to generate a detailed and grounded explanation."
     )
@@ -176,6 +177,7 @@ def llm_explanation(chunks, query: str) -> str:
         input=prompt,
     )
 
+    # Adjust this indexing if SDK output schema is different in your environment
     text = response.output[0].content[0].text
     return text
 
@@ -187,14 +189,18 @@ def llm_explanation(chunks, query: str) -> str:
 st.title("CodeDocMate – Early RAG Prototype")
 
 st.markdown(
-    "This prototype demonstrates the first working step of CodeDocMate.\n\n"
-    "- You can upload a zipped Python, Java, C, C++ etc. project.\n"
-    "- The system scans and chunks the source files.\n"
-    "- Each chunk is embedded into a vector space using an OpenAI embedding model.\n"
-    "- Given a natural language question, the system retrieves relevant chunks\n"
-    "  and either shows a stub explanation or calls an LLM (RAG mode).\n\n"
-    "In the final version, this will be extended with more advanced chunking,\n"
-    "better retrieval, and richer documentation generation."
+    """
+This prototype demonstrates the first working step of **CodeDocMate**.
+
+- Upload a zipped project (currently only Python files are used).
+- The system scans and chunks the source files.
+- Each chunk is embedded into a vector space using an OpenAI embedding model.
+- Given a natural language question, the system retrieves relevant chunks
+  and either shows a stub explanation or calls an LLM (RAG mode).
+
+In the final version, this will be extended with more advanced chunking,
+better retrieval, and richer documentation generation.
+"""
 )
 
 if client is None:
@@ -209,7 +215,6 @@ if client is None:
 
 st.header("1. Upload and index project")
 
-# First let the user upload a zip file
 uploaded_zip = st.file_uploader("Upload your project (.zip)", type=["zip"])
 
 # Derive a default project ID from the zip file name (without .zip extension)
@@ -219,7 +224,6 @@ if uploaded_zip is not None:
     if default_project_id.lower().endswith(".zip"):
         default_project_id = default_project_id[:-4]
 
-# Pre-fill the Project ID field with the derived default
 project_id = st.text_input("Project ID", value=default_project_id)
 
 if uploaded_zip is not None and project_id:
@@ -308,4 +312,5 @@ if st.button("Retrieve & Explain"):
                 "Failed to run RAG + LLM explanation. "
                 "This is usually caused by a missing/invalid API key or insufficient quota.\n\n"
                 f"Details: {e}"
-            )
+            )
+
