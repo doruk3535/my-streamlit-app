@@ -478,7 +478,3 @@ st.markdown(
    - Tries to detect a function name like `calculate_loss`.
    - Performs keyword + function-name matching over all chunks.
 5. The highest-scoring chunks are shown alongside a rule-based explanation.
-
-
-
-st.markdown("</div>", unsafe_allow_html=True)
