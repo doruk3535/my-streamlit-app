@@ -479,11 +479,6 @@ st.markdown(
    - Performs keyword + function-name matching over all chunks.
 5. The highest-scoring chunks are shown alongside a rule-based explanation.
 
-This navy blue Lite version is ideal for:
-- Presentations where no API key is available.
-- Explaining the *idea* of RAG on top of a codebase.
-- Quickly testing how questions map to different regions of your project.
-"""
-)
+
 
 st.markdown("</div>", unsafe_allow_html=True)
