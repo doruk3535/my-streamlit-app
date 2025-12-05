@@ -266,7 +266,7 @@ with st.container():
             <span>Local-only · No API key</span>
           </div>
           <h1 style="margin-top:0.6rem; margin-bottom:0.3rem; font-size:2.0rem;">
-            Navy Blue RAG Playground for Codebases
+        RAG Playground for Codebases
           </h1>
           <p style="margin:0; font-size:0.95rem; color:#cbd5f5;">
             Upload a zipped Python project, explore its structure, and see which parts of the
