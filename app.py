@@ -262,11 +262,11 @@ with st.container():
         """
         <div class="codemate-hero">
           <div class="codemate-pill">
-            <span>🧠 CodeDocMate Lite</span>
+            <span> 💻CodeDocMate Lite</span>
             <span>Local-only · No API key</span>
           </div>
           <h1 style="margin-top:0.6rem; margin-bottom:0.3rem; font-size:2.0rem;">
-           RAG Playground for Codebases
+           LLM Playground for Codebases
           </h1>
           <p style="margin:0; font-size:0.95rem; color:#cbd5f5;">
             Upload a zipped Python project, explore its structure, and see which parts of the
@@ -479,9 +479,9 @@ st.markdown(
    - Performs keyword + function-name matching over all chunks.
 5. The highest-scoring chunks are shown alongside a rule-based explanation.
 
-This navy blue Lite version is ideal for:
+This Lite version is ideal for:
 - Presentations where no API key is available.
-- Explaining the *idea* of RAG on top of a codebase.
+- Explaining the *idea* of LLM on top of a codebase.
 - Quickly testing how questions map to different regions of your project.
 """
 )
