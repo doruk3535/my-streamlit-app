@@ -462,7 +462,6 @@ with right_col:
 # ============================================================
 # Bottom: System overview section
 # ============================================================
-
 st.markdown("")
 st.markdown('<div class="codemate-section-soft">', unsafe_allow_html=True)
 
