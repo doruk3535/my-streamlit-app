@@ -12,7 +12,7 @@ from typing import Optional, List, Dict
 
 st.set_page_config(
     page_title="CodeDocMate Lite",
-    page_icon="🧠",
+    page_icon="💻",
     layout="wide",
 )
 
